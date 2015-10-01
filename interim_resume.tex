@@ -1,0 +1,88 @@
+\documentclass[]{iplresume} %Evil options: narrowline, wideline
+\usepackage[dvipdfmx]{graphicx}
+
+%Font Info
+\usepackage[T1]{fontenc}
+
+%Document Info
+\title{LinuxカーネルにおけるI/O優先度操作機構の実現}
+\author{佐藤 洋佑}
+\stdnum{1211075}
+\office{岩崎研究室}
+\lhead{電気通信大学 情報理工学部 情報・通信工学科 平成27年度卒研計画発表}
+\rhead{平成27年10月2日(金曜日)}
+
+\begin{document}
+\maketitle
+\section{背景}
+OS内では，ファイルI/Oを多く行うもの，計算処理が中心のものなど，様々なプロセスが存在する．
+また，I/O処理待ち状態のプロセスが計算処理を行う場合では，別のプロセスのI/O処理が終わるまでCPU資源を割り当てることができない．
+これによってCPU資源が有効活用されず無駄となってしまうという問題が起こり得る．
+
+この問題に対して，I/O優先度の操作によって，CPU資源の無駄が軽減できる事が示されている\cite{tanji}．
+I/O優先度とは，I/O要求の処理に割り当てられる優先度の事である．
+\cite{tanji}で提案されている方法は，I/Oを行う頻度が小さいプロセスのI/O優先度を高くしてI/Oを早く終わらせてCPUを有効活用するというものである．
+しかし，Linuxカーネルへの実装は，まだされていない．
+\section{目的と方針}
+本研究の目的は，I/O優先度操作を行う機構をLinuxカーネルに実装して，CPU資源が有効活用されることを実際に確認することである．
+その方針として次の3つのことを立てた．1つ目は，Completely Fair Queuing (CFQ) スケジューラを拡張することである．
+これは，Linuxカーネルにおいて，I/O優先度を操作できる唯一のI/Oスケジューラである．
+2つ目は，各プロセスのI/O要求のプロファイルを取得し，プロセス毎のI/O要求頻度を動的に計算することである．
+3つ目は，I/O要求頻度が低いプロセスのI/O優先度を高くすることである．
+\section{I/Oスケジューラ}
+Linuxカーネルには，I/O処理を効率よく行うために各プロセスからのI/O要求を並び替える機構がある．
+これをI/Oスケジューラと呼ぶ．
+Linuxカーネルの既存のI/Oスケジューラの1つにCFQスケジューラがあり，本研究で用いる．
+I/O優先度には高，中，低の3段階があり，デフォルトは中に設定されている．
+CFQスケジューラでは，このI/O優先度をプロセス毎に変更することが可能である．
+\section{CFQスケジューラの既存の動作}
+CFQスケジューラの既存の動作では，図のように各プロセスからのI/O要求を並び替える．
+プロセス3はI/O処理の後に計算処理を行うが，この計算処理に入るためにはI/O処理を終わらせる必要がある．
+しかし，プロセス3のI/O処理の要求はプロセス1，2のI/O要求の後に並び替えられてしまっているのでI/O要求が処理されるのが遅くなり，その結果計算処理のCPU資源への割り当てが遅くなる．
+この点が既存のスケジューラにおける課題点となる．
+%\begin{figure}[ht]
+%  \includegraphics[width=9cm,height=6cm]{cfq_scheduler_example.png}
+%  \caption{CFQスケジューラ}
+%  \label{fig:cfq}
+%\end{figure}\\
+\section{拡張後のスケジューラ}
+拡張後のスケジューラでは，まずI/O操作のプロファイルをプロセス毎に取得し，そのプロファイルをもとに各プロセスのI/O頻度を計算する．
+この値が小さいプロセスはI/O要求頻度が小さいとみなす．
+そしてI/O要求頻度が小さいプロセスのI/O優先度を高くする．
+そうすれば，図のように並び替えられる．
+この結果，プロセス3のI/O要求がプロセス1，2のI/O要求よりも先に処理されるようになるため，続く計算処理に対してCPU資源を早く割り当てられるようになる．結果としてCPU資源を有効活用できるようになる．
+%\begin{figure}[ht]
+%  \includegraphics[width=9cm,height=6cm]{extended_scheduler_example.png}
+%  \caption{拡張後のスケジューラ}
+%  \label{fig:extended}
+%\end{figure}\\
+\section{プロファイルの取得}
+本研究で取得するプロファイルとは，プロセス毎のI/O要求頻度を計算するために必要な情報である．
+具体的には，プロセス毎のI/O要求数と時間となる．プロセス毎のI/O要求数は各プロセスがI/O要求を出した時に，カーネル内部のデータ構造に記録する．
+この記録したI/O要求数と時間でI/O要求頻度を計算する．
+その計算方法は様々な方法が考えられるので，今後比較し検討する必要がある．
+また，計算したI/O要求頻度をもとにどのような基準でI/O優先度を決定するかについても，今度比較してその基準を決定する．
+\section{関連研究}
+Marcusら\cite{marcus}は，ブロック優先のI/Oスケジューラの実装を行っている．
+Seungyupら\cite{seungyup}は，同期的I/O要求を優先するI/Oスケジューラの実装を行っている．
+どちらの研究においても注目するものを優先するようなI/Oスケジューラを実装しているが，I/O要求頻度を考慮していないという点で本研究とは異なっている．
+\section{現状と今後}
+現在は，I/O要求数を数える機構の実装を行った．
+また，先行研究\cite{tanji}で行った実験を再現している．
+今後は以下の4つのことを行う．
+1つ目は，I/O要求頻度を計算する方法の検討をする．
+2つ目は，I/O優先度を操作する基準を検討する．
+3つ目は，I/O優先度を操作する機構の実装を行う．
+4つ目は，拡張した後のスケジューラが有効活用される事を確認する．
+\begin{thebibliography}{9}
+  \bibitem{tanji} 丹治 将貴(2014)，
+    "LinuxカーネルにおけるI/O優先度操作によるCPU資源の有効活用"，
+    電気通信大学．
+  \bibitem{marcus} Marcus Dunn and A.L.Narashimha Reddy(2009)，
+    "A New I/O Scheduler for Solid State Devices"，
+    Texas A\&M University ECE Technical Report TAMU-ECE-2009-02．
+  \bibitem{seungyup} Seungyup Kang and Hyunchan Park and Chunk Yoo(2011)，
+    "Performance Enhancement of I/O Scheduler for Solid State Devices"，
+    2011 IEEE International Conference on Consumer Electronics(ICCE)，pp.31-32．
+\end{thebibliography}
+\end{document}
